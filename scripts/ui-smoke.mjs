@@ -1,0 +1,11 @@
+import { puppeteer, chromePath, startServer, newPhone } from './ui-lib.mjs';
+const srv = await startServer();
+const browser = await puppeteer.launch({ executablePath: chromePath(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const ph = await newPhone(browser, srv.base);
+await ph.page.goto(srv.base + '/', { waitUntil: 'networkidle2' });
+await new Promise((r) => setTimeout(r, 600));
+await ph.page.screenshot({ path: 'shots/01-welcome.png' });
+console.log('errors:', ph.errors);
+await browser.close();
+await srv.app.close();
+process.exit(0);

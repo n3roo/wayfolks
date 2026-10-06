@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Wayfolk – Roadtrips gemeinsam</title>
+  <meta name="description" content="Roadtrips gemeinsam planen und unterwegs dokumentieren.">
+  <meta name="theme-color" content="#F6F1E7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0E1626" media="(prefers-color-scheme: dark)">
+  <meta name="color-scheme" content="light dark">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" type="image/png" sizes="48x48" href="/icons/favicon-48.png">
+  <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+  <!--OG-->
+  <link rel="stylesheet" href="/vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body>
+  <div id="app"><div id="banner"></div><div id="stage"></div></div>
+  <div id="layers"></div>
+  <div id="toasts" role="status" aria-live="polite"></div>
+  <noscript>Wayfolk braucht JavaScript.</noscript>
+  <script src="/vendor/leaflet/leaflet.js"></script>
+  <script type="module" src="/js/main.js"></script>
+</body>
+</html>

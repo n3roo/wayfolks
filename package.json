@@ -1,0 +1,20 @@
+{
+  "name": "wayfolk",
+  "version": "0.1.0",
+  "description": "Wayfolk – gemeinsam Roadtrips planen und unterwegs dokumentieren",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.13" },
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test": "node --test --test-concurrency=1 test/*.test.js",
+    "test:ui": "node scripts/ui-check.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "puppeteer-core": "^25.8.0"
+  }
+}

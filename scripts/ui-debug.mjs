@@ -1,0 +1,17 @@
+import { puppeteer, chromePath, startServer, newPhone } from './ui-lib.mjs';
+const srv = await startServer();
+const { user, secret } = await srv.app.store.registerUser('Debug');
+const { trip } = await srv.app.store.createTrip(user.id, { title: 'Debug-Reise' });
+const browser = await puppeteer.launch({ executablePath: chromePath(), headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const ph = await newPhone(browser, srv.base);
+const p = ph.page;
+await p.evaluateOnNewDocument((u, s) => { localStorage.setItem('wf.userId', u.id); localStorage.setItem('wf.secret', s); localStorage.setItem('wf.name', u.name); localStorage.setItem('wf.color', u.color); }, user, secret);
+p.on('console', (m) => console.log('console', m.type(), m.text()));
+p.on('response', (r) => { if (/cartocdn/.test(r.url())) console.log('tile', r.status()); });
+await p.goto(srv.base + '/t/' + trip.id, { waitUntil: 'networkidle2' });
+await new Promise((r) => setTimeout(r, 1500));
+console.log(await p.evaluate(() => { const m = document.querySelector('#map'); const r = m.getBoundingClientRect(); return { w: r.width, h: r.height, tiles: document.querySelectorAll('.leaflet-tile').length, loaded: document.querySelectorAll('.leaflet-tile-loaded').length, pane: document.querySelector('.leaflet-tile-pane')?.children.length, errors: window.__errs }; }));
+console.log(await p.evaluate(() => ['#stage', '.view', '.plan', '.map-wrap', '#map'].map((q) => { const e = document.querySelector(q); const c = getComputedStyle(e); const r = e.getBoundingClientRect(); return `${q}: ${Math.round(r.width)}x${Math.round(r.height)} pos=${c.position} top=${c.top} bottom=${c.bottom} disp=${c.display}`; }).join('\n')));
+console.log('log', ph.log.length, ph.log.slice(0, 5), ph.errors);
+await p.screenshot({ path: 'shots/debug.png' });
+await browser.close(); await srv.app.close(); process.exit(0);

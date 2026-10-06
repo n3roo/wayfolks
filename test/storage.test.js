@@ -28,3 +28,14 @@ test('S3/B2 privat: Lese-Links sind signiert, 7 Tage gültig und am selben Tag i
   assert.match(u1, /^https:\/\/s3\.eu-central-003\.backblazeb2\.com\/b\/trip\/m\.jpg\?.*X-Amz-Expires=604800.*X-Amz-Signature=/);
   assert.equal(st.publicUrl('trip/m.jpg'), u1);
 });
+
+test('Selbstprüfung: erkennt falsche Zugangsdaten und fehlende CORS-Regel', async () => {
+  const mk = (head, opts) => new S3Storage({ endpoint: 's3.x.backblazeb2.com', bucket: 'b', accessKey: 'AK', secretKey: 'SK',
+    fetchFn: async (u, o) => (o.method === 'HEAD' ? { ok: head === 200, status: head, headers: new Map() } : opts) });
+  const good = await mk(404, { ok: true, status: 200, headers: new Map([['access-control-allow-origin', 'https://app.example']]) }).diagnose('https://app.example');
+  assert.equal(good.ok, true);
+  const bad = await mk(403, { ok: false, status: 403, headers: new Map() }).diagnose('https://app.example');
+  assert.equal(bad.ok, false);
+  assert.match(bad.credentials, /abgelehnt/);
+  assert.match(bad.cors, /fehlt für https:\/\/app\.example/);
+});

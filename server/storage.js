@@ -70,6 +70,23 @@ export class S3Storage {
     return { size: Number(res.headers.get('content-length') || 0), type: res.headers.get('content-type') || '' };
   }
 
+  // Selbstprüfung für /api/health?storage=1: stimmen die Zugangsdaten, und erlaubt die CORS-Regel Uploads von dieser Adresse?
+  async diagnose(origin) {
+    const out = { kind: this.kind, endpoint: this.host, bucket: this.bucket, region: this.region, private: !this.base };
+    try {
+      const res = await this.fetch(this._sign('HEAD', '_wayfolk-check', {}, 120), { method: 'HEAD' });
+      out.credentials = res.status === 404 || res.ok ? 'ok' : res.status === 403 || res.status === 401 ? 'abgelehnt (Key oder Bucket-Name falsch?)' : `Status ${res.status}`;
+    } catch (e) { out.credentials = 'nicht erreichbar: ' + e.message; }
+    try {
+      const { url } = this.presignPut('_wayfolk-check', 'image/jpeg');
+      const res = await this.fetch(url, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'content-type' } });
+      const allow = res.headers.get('access-control-allow-origin');
+      out.cors = res.ok && (allow === '*' || allow === origin) ? 'ok' : `fehlt für ${origin} (Antwort ${res.status}${allow ? ', erlaubt: ' + allow : ''})`;
+    } catch (e) { out.cors = 'nicht prüfbar: ' + e.message; }
+    out.ok = out.credentials === 'ok' && out.cors === 'ok';
+    return out;
+  }
+
   async remove(key) {
     try { await this.fetch(this._sign('DELETE', key, {}, 120), { method: 'DELETE' }); } catch { /* best effort */ }
   }

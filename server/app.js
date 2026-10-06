@@ -73,8 +73,11 @@ export async function createApp({ db, storage = createStorage(process.env), publ
       if (pathname === '/api/health') {
         try {
           await db.execute('SELECT 1 AS ok');
+          let storageInfo;
+          if (url.searchParams.get('storage') && storage?.diagnose) storageInfo = await storage.diagnose(`${req.headers['x-forwarded-proto'] || 'https'}://${req.headers.host}`);
+          else if (url.searchParams.get('storage')) storageInfo = { ok: false, hint: storage ? 'Nur Entwicklungsspeicher aktiv' : 'Nicht eingerichtet: S3_ENDPOINT, S3_BUCKET, S3_KEY_ID und S3_APP_KEY fehlen' };
           res.writeHead(200, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
-          return res.end(JSON.stringify({ ok: true, app: APP_NAME, db: db.kind, schema: version, uptime: Math.round((Date.now() - startedAt) / 1000), build: files.buildInfo().version }));
+          return res.end(JSON.stringify({ ok: true, app: APP_NAME, db: db.kind, schema: version, uptime: Math.round((Date.now() - startedAt) / 1000), build: files.buildInfo().version, media: !!storage, ...(storageInfo ? { storage: storageInfo } : {}) }));
         } catch (e) {
           res.writeHead(500, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' });
           return res.end(JSON.stringify({ ok: false, db: db.kind, error: String(e.message).slice(0, 300) }));

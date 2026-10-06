@@ -29,6 +29,8 @@ Im kostenlosen Render-Tarif schläft der Dienst nach 15 Min. Inaktivität; der n
    - optional `S3_REGION` (wird bei Backblaze automatisch aus dem Endpoint erkannt)
    - optional `MEDIA_PUBLIC_URL`, falls der Bucket öffentlich ist (sonst werden signierte Links verwendet)
 
+Prüfen: `https://<dein-dienst>.onrender.com/api/health?storage=1` zeigt, ob Zugangsdaten und CORS stimmen. Bietet das Backblaze-Formular die S3-Vorgänge nicht an und die Prüfung meldet „CORS fehlt“, kann die Regel mit dem B2-Kommandozeilenwerkzeug (`b2 bucket update --cors-rules`) mit den Vorgängen `s3_put`, `s3_get`, `s3_head` gesetzt werden.
+
 Funktioniert auch mit Cloudflare R2 (Endpoint `<account>.r2.cloudflarestorage.com`, Region `auto`, öffentliche URL in `MEDIA_PUBLIC_URL`).
 
 Fotos werden auf dem Handy auf maximal 2048 px verkleinert, Videos dürfen höchstens 100 MB groß sein. Uploads bleiben auf dem Gerät gespeichert und werden nachgeholt, sobald wieder Netz da ist.

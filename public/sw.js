@@ -1,7 +1,7 @@
 /* Service Worker: App-Shell offline, Kartenkacheln zwischenspeichern. Version wird vom Server eingesetzt. */
 const BUILD = '__BUILD__';
 const SHELL = `wf-shell-${BUILD}`;
-const TILES = 'wf-tiles-v1';
+const TILES = 'wf-tiles-v2';
 const MEDIA = 'wf-media-v1';
 const PRECACHE = __PRECACHE__;
 const TILE_LIMIT = 600;
@@ -19,7 +19,7 @@ self.addEventListener('install', (event) => {
 self.addEventListener('activate', (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k.startsWith('wf-shell-') && k !== SHELL).map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => (k.startsWith('wf-shell-') && k !== SHELL) || k === 'wf-tiles-v1').map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
 });
@@ -33,7 +33,7 @@ async function trim(name, limit) {
 }
 
 function isTile(url) {
-  return /basemaps\.cartocdn\.com|tile\.openstreetmap\.org/.test(url.hostname);
+  return /basemaps\.cartocdn\.com|(^|\.)tile\.openstreetmap\.org/.test(url.hostname);
 }
 
 self.addEventListener('fetch', (event) => {

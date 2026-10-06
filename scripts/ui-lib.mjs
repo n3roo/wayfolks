@@ -81,7 +81,7 @@ export async function installMocks(page, { log = [], osrmFails = false } = {}) {
   page.on('request', async (req) => {
     const url = new URL(req.url());
     const respond = (status, type, body, headers = {}) => req.respond({ status, contentType: type, body, headers: { 'access-control-allow-origin': '*', ...headers } });
-    if (/basemaps\.cartocdn\.com/.test(url.hostname)) {
+    if (/basemaps\.cartocdn\.com|tile\.openstreetmap\.org/.test(url.hostname)) {
       const m = url.pathname.match(/\/(\d+)\/(\d+)\/(\d+)(?:@2x)?\.png/);
       const [z, x, y] = m ? m.slice(1).map(Number) : [0, 0, 0];
       log.push('tile');

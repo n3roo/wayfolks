@@ -1,5 +1,5 @@
 // Kartenansicht mit Leaflet: Stopps, Route, Standort, Entwurfs-Pin
-import { TILE_URLS, TILE_ATTRIBUTION } from './config.js';
+import { TILE_URL, TILE_ATTRIBUTION } from './config.js';
 import { PIN_SVG } from './icons.js';
 
 const L = window.L;
@@ -32,9 +32,9 @@ export class TripMap {
   }
 
   applyTiles() {
-    const url = this.dark.matches ? TILE_URLS.dark : TILE_URLS.light;
-    if (this.tiles) this.tiles.remove();
-    this.tiles = L.tileLayer(url, { subdomains: 'abcd', maxZoom: 18, attribution: TILE_ATTRIBUTION, detectRetina: true, crossOrigin: true, keepBuffer: 3 }).addTo(this.map);
+    // OSM-Standardkacheln (ohne API-Key). Im Dunkelmodus per CSS-Filter abgedunkelt.
+    if (!this.tiles) this.tiles = L.tileLayer(TILE_URL, { maxZoom: 19, attribution: TILE_ATTRIBUTION, crossOrigin: true, keepBuffer: 3, className: 'osm-tiles' }).addTo(this.map);
+    this.map.getContainer().classList.toggle('map-dark', this.dark.matches);
   }
 
   styleRoute() {

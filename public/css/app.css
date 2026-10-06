@@ -347,3 +347,7 @@ body[data-dock='full'] .leaflet-bottom { display: none; }
 .sorting .stop.drag { transition: none; }
 .stop { min-height: 64px; }
 .sorting { position: relative; }
+
+/* Dunkle Karte: OSM-Kacheln invertieren und färben */
+.map-dark .osm-tiles { filter: invert(1) hue-rotate(200deg) brightness(.92) contrast(.9) saturate(.7); }
+.map-dark.leaflet-container { background: #0e1626; }

@@ -65,6 +65,8 @@ export async function createApp({ db, storage = createStorage(process.env), publ
       res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(self), microphone=()');
       const dev = pathname.match(/^\/dev-media\/([A-Za-z0-9_\-./]+)$/);
       if (dev && storage?.kind === 'dev' && !dev[1].includes('..')) return await storage.handle(req, res, dev[1]);
+      const upload = pathname.match(/^\/api\/upload\/([A-Za-z0-9_.-]+)$/);
+      if (upload && req.method === 'PUT' && storage?.proxyUpload) return storage.proxyUpload(upload[1], req, res);
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { Allow: 'GET, HEAD' });
         return res.end();

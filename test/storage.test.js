@@ -13,7 +13,7 @@ test('SigV4: AWS-Referenzbeispiel (vorsignierte GET-URL) stimmt', () => {
 });
 
 test('S3/B2: PUT-Link enthält Bucket-Pfad und signiert Content-Type', () => {
-  const r2 = new S3Storage({ endpoint: 's3.eu-central-003.backblazeb2.com', bucket: 'wayfolk-media', accessKey: 'AK', secretKey: 'SK', publicUrl: 'https://pub-1.example.com/' });
+  const r2 = new S3Storage({ mode: 'direct', endpoint: 's3.eu-central-003.backblazeb2.com', bucket: 'wayfolk-media', accessKey: 'AK', secretKey: 'SK', publicUrl: 'https://pub-1.example.com/' });
   const { url, headers } = r2.presignPut('trip1/m1.jpg', 'image/jpeg');
   assert.match(url, /^https:\/\/s3\.eu-central-003\.backblazeb2\.com\/wayfolk-media\/trip1\/m1\.jpg\?/);
   assert.match(url, /X-Amz-SignedHeaders=content-type%3Bhost/);
@@ -29,13 +29,15 @@ test('S3/B2 privat: Lese-Links sind signiert, 7 Tage gültig und am selben Tag i
   assert.equal(st.publicUrl('trip/m.jpg'), u1);
 });
 
-test('Selbstprüfung: erkennt falsche Zugangsdaten und fehlende CORS-Regel', async () => {
-  const mk = (head, opts) => new S3Storage({ endpoint: 's3.x.backblazeb2.com', bucket: 'b', accessKey: 'AK', secretKey: 'SK',
-    fetchFn: async (u, o) => (o.method === 'HEAD' ? { ok: head === 200, status: head, headers: new Map() } : opts) });
-  const good = await mk(404, { ok: true, status: 200, headers: new Map([['access-control-allow-origin', 'https://app.example']]) }).diagnose('https://app.example');
+test('Selbstprüfung (Proxy-Modus): Schreibtest und Zugangsdaten werden geprüft', async () => {
+  const mk = (head, put) => new S3Storage({ endpoint: 's3.x.backblazeb2.com', bucket: 'b', accessKey: 'AK', secretKey: 'SK',
+    fetchFn: async (u, o) => (o.method === 'HEAD' ? { ok: head === 200, status: head, headers: new Map() }
+      : o.method === 'PUT' ? { ok: put === 200, status: put } : { ok: true, status: 200, headers: new Map() }) });
+  const good = await mk(404, 200).diagnose('https://app.example');
   assert.equal(good.ok, true);
-  const bad = await mk(403, { ok: false, status: 403, headers: new Map() }).diagnose('https://app.example');
+  assert.equal(good.cors, undefined, 'CORS ist im Proxy-Modus unnötig');
+  const bad = await mk(403, 403).diagnose('https://app.example');
   assert.equal(bad.ok, false);
   assert.match(bad.credentials, /abgelehnt/);
-  assert.match(bad.cors, /fehlt für https:\/\/app\.example/);
+  assert.match(bad.schreiben, /Read and Write/);
 });

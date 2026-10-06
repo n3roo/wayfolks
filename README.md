@@ -19,19 +19,19 @@ Im kostenlosen Render-Tarif schläft der Dienst nach 15 Min. Inaktivität; der n
 ## Fotos und Videos (Backblaze B2, kostenlos bis 10 GB)
 
 1. Konto auf backblaze.com anlegen, unter **Buckets → Create a Bucket** einen Bucket erstellen: **Private**, Verschlüsselung und Object Lock aus.
-2. Im Bucket **CORS Rules**: Herkunft `https://<dein-dienst>.onrender.com`, S3-Vorgänge `PUT`, `GET`, `HEAD`, Header `*`.
-3. **App Keys → Add a New Application Key**: nur dieser Bucket, *Read and Write*. Der Schlüssel wird nur einmal angezeigt.
-4. In Render diese Variablen eintragen:
+2. **App Keys → Add a New Application Key**: nur dieser Bucket, *Read and Write*. Der Schlüssel wird nur einmal angezeigt.
+3. In Render diese Variablen eintragen:
    - `S3_ENDPOINT` = z. B. `s3.eu-central-003.backblazeb2.com`
    - `S3_BUCKET` = Bucket-Name
    - `S3_KEY_ID` = keyID
    - `S3_APP_KEY` = applicationKey
-   - optional `S3_REGION` (wird bei Backblaze automatisch aus dem Endpoint erkannt)
+   - optional `S3_REGION` (bei Backblaze automatisch aus dem Endpoint erkannt)
    - optional `MEDIA_PUBLIC_URL`, falls der Bucket öffentlich ist (sonst werden signierte Links verwendet)
+   - optional `UPLOAD_MODE=direct`: Handy lädt direkt in den Bucket hoch (dann ist eine CORS-Regel mit `s3_put` nötig). Standard ist: Upload über den eigenen Server, ohne CORS.
 
-Prüfen: `https://<dein-dienst>.onrender.com/api/health?storage=1` zeigt, ob Zugangsdaten und CORS stimmen. Bietet das Backblaze-Formular die S3-Vorgänge nicht an und die Prüfung meldet „CORS fehlt“, kann die Regel mit dem B2-Kommandozeilenwerkzeug (`b2 bucket update --cors-rules`) mit den Vorgängen `s3_put`, `s3_get`, `s3_head` gesetzt werden.
+Prüfen: `https://<dein-dienst>.onrender.com/api/health?storage=1` testet Zugangsdaten, Schreiben und Lesen.
 
-Funktioniert auch mit Cloudflare R2 (Endpoint `<account>.r2.cloudflarestorage.com`, Region `auto`, öffentliche URL in `MEDIA_PUBLIC_URL`).
+Funktioniert auch mit Cloudflare R2 (Endpoint `<account>.r2.cloudflarestorage.com`, Region `auto`).
 
 Fotos werden auf dem Handy auf maximal 2048 px verkleinert, Videos dürfen höchstens 100 MB groß sein. Uploads bleiben auf dem Gerät gespeichert und werden nachgeholt, sobald wieder Netz da ist.
 

@@ -387,8 +387,9 @@ export class Store {
     const n = await this.db.execute('SELECT COUNT(*) AS n FROM media WHERE trip_id = ?', [tripId]);
     if (n.rows[0].n >= LIMITS.mediaPerTrip) throw new AppError('limit', 'Diese Reise hat die maximale Anzahl an Fotos und Videos erreicht.');
     const keys = this._mediaKeys(tripId, data.id, mime);
-    const out = { put: this.storage.presignPut(keys.file, mime) };
-    if (data.thumb) out.thumb = this.storage.presignPut(keys.thumb, 'image/jpeg');
+    const max = data.kind === 'video' ? LIMITS.videoBytes : LIMITS.imageBytes;
+    const out = { put: this.storage.presignPut(keys.file, mime, max) };
+    if (data.thumb) out.thumb = this.storage.presignPut(keys.thumb, 'image/jpeg', LIMITS.thumbBytes);
     return out;
   }
 

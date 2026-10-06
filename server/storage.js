@@ -1,6 +1,8 @@
 // Medien-Speicher: Cloudflare R2 (S3-kompatibel, Upload per vorsigniertem Link direkt vom Handy)
 // und ein kleiner Speicher im Arbeitsspeicher für Entwicklung und Tests (MEDIA_DEV=1).
 import crypto from 'node:crypto';
+import http from 'node:http';
+import https from 'node:https';
 
 const hmac = (key, data) => crypto.createHmac('sha256', key).update(data).digest();
 const hex = (buf) => buf.toString('hex');
@@ -12,7 +14,7 @@ export const MIME_EXT = {
 };
 
 // AWS Signature V4 für Query-Strings (vorsignierte Links)
-export function presign({ method, host, path, region, service = 's3', accessKey, secretKey, now = new Date(), expires = 3600, headers = {} }) {
+export function presign({ method, host, path, region, service = 's3', accessKey, secretKey, now = new Date(), expires = 3600, headers = {}, scheme = 'https' }) {
   const amz = now.toISOString().replace(/[-:]/g, '').replace(/\.\d+Z$/, 'Z');
   const date = amz.slice(0, 8);
   const scope = `${date}/${region}/${service}/aws4_request`;
@@ -32,35 +34,81 @@ export function presign({ method, host, path, region, service = 's3', accessKey,
   const toSign = ['AWS4-HMAC-SHA256', amz, scope, sha(canonical)].join('\n');
   const key = hmac(hmac(hmac(hmac('AWS4' + secretKey, date), region), service), 'aws4_request');
   const signature = hex(hmac(key, toSign));
-  return { url: `https://${host}${canonPath}?${qs}&X-Amz-Signature=${signature}`, signature };
+  return { url: `${scheme}://${host}${canonPath}?${qs}&X-Amz-Signature=${signature}`, signature };
 }
 
 export class S3Storage {
-  // Läuft mit Backblaze B2, Cloudflare R2 und anderen S3-kompatiblen Diensten (Pfad-Stil)
-  constructor({ endpoint, region, bucket, accessKey, secretKey, publicUrl, fetchFn = fetch }) {
+  // Läuft mit Backblaze B2, Cloudflare R2 und anderen S3-kompatiblen Diensten (Pfad-Stil).
+  // Standard: Uploads laufen über den eigenen Server (kein CORS nötig). mode 'direct': Handy lädt per vorsigniertem Link hoch.
+  constructor({ endpoint, region, bucket, accessKey, secretKey, publicUrl, mode = 'proxy', fetchFn = fetch }) {
     this.kind = 's3';
+    this.scheme = /^http:\/\//.test(endpoint) ? 'http' : 'https';
     this.host = endpoint.replace(/^https?:\/\//, '').replace(/\/+$/, '');
     this.region = region || (this.host.match(/^s3\.([^.]+)\.backblazeb2\.com$/)?.[1]) || 'auto';
     this.bucket = bucket;
     this.accessKey = accessKey;
     this.secretKey = secretKey;
     this.base = publicUrl ? publicUrl.replace(/\/+$/, '') : null; // ohne öffentliche Adresse: private Ablage mit signierten Links
+    this.mode = mode === 'direct' ? 'direct' : 'proxy';
+    this.uploadSecret = crypto.createHash('sha256').update('wayfolk-upload:' + secretKey).digest();
     this.fetch = fetchFn;
   }
 
   _sign(method, key, headers = {}, expires = 3600) {
-    return presign({ method, host: this.host, path: `/${this.bucket}/${key}`, region: this.region, accessKey: this.accessKey, secretKey: this.secretKey, expires, headers }).url;
+    return presign({ method, host: this.host, path: `/${this.bucket}/${key}`, region: this.region, accessKey: this.accessKey, secretKey: this.secretKey, expires, headers, scheme: this.scheme }).url;
   }
 
-  presignPut(key, contentType) {
-    return { url: this._sign('PUT', key, { 'content-type': contentType }, 3600), headers: { 'Content-Type': contentType } };
+  // Upload-Ziel für den Client. Im Proxy-Modus ein kurzlebiges, signiertes Token für den eigenen Server.
+  presignPut(key, contentType, maxBytes = 0) {
+    if (this.mode === 'direct') return { url: this._sign('PUT', key, { 'content-type': contentType }, 3600), headers: { 'Content-Type': contentType } };
+    const payload = Buffer.from(JSON.stringify({ k: key, t: contentType, m: maxBytes, e: Date.now() + 3600_000 })).toString('base64url');
+    const sig = crypto.createHmac('sha256', this.uploadSecret).update(payload).digest('base64url');
+    return { url: `/api/upload/${payload}.${sig}`, headers: { 'Content-Type': contentType } };
   }
 
-  // Private Ablage: Lese-Links gelten 7 Tage und ändern sich nur einmal täglich, damit der Browser Bilder zwischenspeichern kann
+  verifyUpload(token) {
+    const [payload, sig] = String(token).split('.');
+    if (!payload || !sig) return null;
+    const expect = crypto.createHmac('sha256', this.uploadSecret).update(payload).digest('base64url');
+    if (sig.length !== expect.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expect))) return null;
+    try {
+      const d = JSON.parse(Buffer.from(payload, 'base64url').toString());
+      return d.e > Date.now() && typeof d.k === 'string' ? d : null;
+    } catch { return null; }
+  }
+
+  // Reicht den Upload eines Handys direkt an den Speicher durch (ohne Zwischenspeicherung)
+  proxyUpload(token, req, res) {
+    const reply = (code, msg) => { if (!res.headersSent) res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(msg); };
+    const d = this.verifyUpload(token);
+    if (!d) return reply(403, 'Upload-Link ungültig oder abgelaufen');
+    const len = Number(req.headers['content-length']);
+    if (!Number.isFinite(len) || len <= 0) return reply(411, 'Dateigröße fehlt');
+    if (d.m && len > d.m) return reply(413, 'Datei zu groß');
+    if ((req.headers['content-type'] || '') !== d.t) return reply(415, 'Falscher Dateityp');
+    const url = new URL(this._sign('PUT', d.k, { 'content-type': d.t }, 600));
+    const lib = this.scheme === 'http' ? http : https;
+    let sent = 0; let done = false;
+    const up = lib.request(url, { method: 'PUT', headers: { 'Content-Type': d.t, 'Content-Length': len } }, (r) => {
+      const chunks = [];
+      r.on('data', (c) => chunks.push(c));
+      r.on('end', () => {
+        done = true;
+        if (r.statusCode >= 200 && r.statusCode < 300) reply(200, 'ok');
+        else reply(502, `Speicher meldet ${r.statusCode}: ${Buffer.concat(chunks).toString().replace(/\s+/g, ' ').slice(0, 200)}`);
+      });
+    });
+    up.on('error', (e) => { if (!done) { done = true; reply(502, 'Speicher nicht erreichbar: ' + e.message); } });
+    req.on('data', (c) => { sent += c.length; if (sent > len) { up.destroy(); req.destroy(); } });
+    req.on('aborted', () => up.destroy());
+    req.pipe(up);
+  }
+
   publicUrl(key) {
     if (this.base) return `${this.base}/${key}`;
+    // Private Ablage: Lese-Links gelten 7 Tage und ändern sich nur einmal täglich, damit der Browser Bilder zwischenspeichern kann
     const day = new Date(); day.setUTCHours(0, 0, 0, 0);
-    return presign({ method: 'GET', host: this.host, path: `/${this.bucket}/${key}`, region: this.region, accessKey: this.accessKey, secretKey: this.secretKey, expires: 604800, now: day }).url;
+    return presign({ method: 'GET', host: this.host, path: `/${this.bucket}/${key}`, region: this.region, accessKey: this.accessKey, secretKey: this.secretKey, expires: 604800, now: day, scheme: this.scheme }).url;
   }
 
   async head(key) {
@@ -70,39 +118,31 @@ export class S3Storage {
     return { size: Number(res.headers.get('content-length') || 0), type: res.headers.get('content-type') || '' };
   }
 
-  // Selbstprüfung für /api/health?storage=1: stimmen die Zugangsdaten, und erlaubt die CORS-Regel Uploads von dieser Adresse?
+  // Selbstprüfung für /api/health?storage=1
   async diagnose(origin) {
-    const out = { kind: this.kind, endpoint: this.host, bucket: this.bucket, region: this.region, private: !this.base };
+    const out = { kind: this.kind, endpoint: this.host, bucket: this.bucket, region: this.region, private: !this.base, uploadModus: this.mode === 'proxy' ? 'über den Server (kein CORS nötig)' : 'direkt vom Handy (CORS nötig)' };
     try {
       const res = await this.fetch(this._sign('HEAD', '_wayfolk-check', {}, 120), { method: 'HEAD' });
       out.credentials = res.status === 404 || res.ok ? 'ok' : res.status === 403 || res.status === 401 ? 'abgelehnt (Key oder Bucket-Name falsch?)' : `Status ${res.status}`;
     } catch (e) { out.credentials = 'nicht erreichbar: ' + e.message; }
-    const preflight = async (url, method, reqHeaders) => {
-      const headers = { Origin: origin, 'Access-Control-Request-Method': method };
-      if (reqHeaders) headers['Access-Control-Request-Headers'] = reqHeaders;
-      const res = await this.fetch(url, { method: 'OPTIONS', headers });
-      const allow = res.headers.get('access-control-allow-origin');
-      let body = '';
-      try { body = (await res.text()).replace(/\s+/g, ' ').replace(/<\?xml[^>]*\?>/, '').slice(0, 160); } catch { /* ohne Text */ }
-      return { status: res.status, allow, body, good: res.ok && (allow === '*' || allow === origin) };
-    };
+    // Schreibtest: kleine Datei anlegen und wieder löschen
     try {
-      const put = this.presignPut('_wayfolk-check', 'image/jpeg').url;
-      const variants = {
-        'PUT mit Content-Type': await preflight(put, 'PUT', 'content-type'),
-        'PUT ohne Header': await preflight(put, 'PUT'),
-        'GET': await preflight(this._sign('GET', '_wayfolk-check', {}, 120), 'GET'),
+      const put = await this.fetch(this._sign('PUT', '_wayfolk-check', { 'content-type': 'text/plain' }, 120), { method: 'PUT', headers: { 'Content-Type': 'text/plain' }, body: 'ok' });
+      out.schreiben = put.ok ? 'ok' : `abgelehnt (${put.status}): Hat der App Key „Read and Write“ für diesen Bucket?`;
+      if (put.ok) { const back = await this.fetch(this.publicUrl('_wayfolk-check'), { method: 'GET' }); out.lesen = back.ok ? 'ok' : `Status ${back.status}`; }
+      await this.remove('_wayfolk-check');
+    } catch (e) { out.schreiben = 'nicht prüfbar: ' + e.message; }
+    if (this.mode === 'direct') {
+      const pre = async (url, method, reqHeaders) => {
+        const headers = { Origin: origin, 'Access-Control-Request-Method': method };
+        if (reqHeaders) headers['Access-Control-Request-Headers'] = reqHeaders;
+        const res = await this.fetch(url, { method: 'OPTIONS', headers });
+        const allow = res.headers.get('access-control-allow-origin');
+        return res.ok && (allow === '*' || allow === origin);
       };
-      const ct = variants['PUT mit Content-Type'];
-      out.cors = ct.good ? 'ok' : `fehlt für ${origin} (Antwort ${ct.status}${ct.allow ? ', erlaubt: ' + ct.allow : ''})`;
-      if (!ct.good) {
-        out.corsDetail = Object.fromEntries(Object.entries(variants).map(([k, v]) => [k, `${v.good ? 'ERLAUBT' : 'abgelehnt'} (${v.status}) ${v.good ? '' : v.body}`.trim()]));
-        out.corsHinweis = variants['PUT ohne Header'].good
-          ? 'Die Regel greift, erlaubt aber den Header Content-Type nicht.'
-          : variants.GET.good ? 'Lesen ist erlaubt, aber PUT (Hochladen) nicht: S3-Vorgänge in der Regel prüfen.' : 'Keine Regel passt zu dieser Herkunft: Regel gespeichert? Adresse genau gleich, ohne / am Ende?';
-      }
-    } catch (e) { out.cors = 'nicht prüfbar: ' + e.message; }
-    out.ok = out.credentials === 'ok' && out.cors === 'ok';
+      try { out.cors = (await pre(this._sign('PUT', '_wayfolk-check', { 'content-type': 'image/jpeg' }, 120), 'PUT', 'content-type')) ? 'ok' : `fehlt für ${origin}`; } catch (e) { out.cors = 'nicht prüfbar: ' + e.message; }
+    }
+    out.ok = out.credentials === 'ok' && out.schreiben === 'ok' && (this.mode === 'proxy' || out.cors === 'ok');
     return out;
   }
 
@@ -140,7 +180,7 @@ export function createStorage(env = process.env) {
   const bucket = env.S3_BUCKET;
   const publicUrl = env.MEDIA_PUBLIC_URL;
   if (endpoint && accessKey && secretKey && bucket) {
-    return new S3Storage({ endpoint, region: env.S3_REGION, bucket, accessKey, secretKey, publicUrl });
+    return new S3Storage({ endpoint, region: env.S3_REGION, bucket, accessKey, secretKey, publicUrl, mode: env.UPLOAD_MODE });
   }
   if (env.MEDIA_DEV === '1') return new DevStorage();
   return null;

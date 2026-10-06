@@ -97,14 +97,14 @@ try {
   await waitFor(a, () => document.querySelector('.lightbox .lb-slide img'), null, { label: 'Vollbild' });
   await sleep(400);
   await shot(a, 'm04-vollbild');
-  await a.evaluate(() => document.querySelector('.lightbox .icon-btn[aria-label="Bildunterschrift bearbeiten"]').click());
+  await a.tap('.lightbox .icon-btn[aria-label="Bildunterschrift bearbeiten"]'); // echte Berührung statt Programm-Klick
   await waitFor(a, () => document.querySelector('.sheet textarea'), null, { label: 'Unterschrift' });
   await sleep(300);
   await typeInto(a, '.sheet textarea', 'Los geht die Fahrt!');
   await clickText(a, '.sheet .btn', 'Speichern');
   await waitFor(a, () => document.querySelector('.lb-cap')?.textContent === 'Los geht die Fahrt!', null, { label: 'Unterschrift sichtbar' });
   await waitFor(a, () => window.__wf.state.pending === 0, null, { label: 'Unterschrift gesendet' });
-  await a.evaluate(() => document.querySelector('.lightbox .icon-btn[aria-label="Schließen"]').click());
+  await a.tap('.lightbox .icon-btn[aria-label="Schließen"]');
   await waitFor(a, () => !document.querySelector('.lightbox'), null, { label: 'Vollbild zu' });
   ok('Vollbild, Bildunterschrift speichern, schließen');
 
@@ -185,7 +185,7 @@ try {
   await shot(a, 'm08-galerie');
   await click(a, '.story .gallery .thumb');
   await waitFor(a, () => document.querySelector('.lightbox .lb-count')?.textContent.startsWith('1 /'), null, { label: 'Vollbild aus Galerie' });
-  await a.evaluate(() => document.querySelector('.lightbox .icon-btn[aria-label="Schließen"]').click());
+  await a.tap('.lightbox .icon-btn[aria-label="Schließen"]');
   ok('Rückblick: Zeitleiste und Galerie, Vollbild');
 
   // Dunkelmodus

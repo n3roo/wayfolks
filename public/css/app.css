@@ -376,7 +376,7 @@ body[data-dock='full'] .leaflet-bottom { display: none; }
 .section-row .lbl { font-size: 13px; font-weight: 650; color: var(--ink-2); }
 
 /* Vollbild-Ansicht */
-.lightbox { position: fixed; inset: 0; z-index: 5200; background: #05080f; color: #fff; display: flex; flex-direction: column; animation: viewIn .18s ease-out; }
+.lightbox { pointer-events: auto; position: fixed; inset: 0; z-index: 5200; background: #05080f; color: #fff; display: flex; flex-direction: column; animation: viewIn .18s ease-out; }
 .lb-track { flex: 1; display: flex; overflow-x: auto; overflow-y: hidden; scroll-snap-type: x mandatory; scrollbar-width: none; overscroll-behavior: contain; -webkit-overflow-scrolling: touch; }
 .lb-track::-webkit-scrollbar { display: none; }
 .lb-slide { flex: 0 0 100%; scroll-snap-align: center; scroll-snap-stop: always; display: flex; align-items: center; justify-content: center; padding: calc(64px + var(--safe-top)) 0 calc(120px + var(--safe-bottom)); }

@@ -77,11 +77,20 @@ export class S3Storage {
       const res = await this.fetch(this._sign('HEAD', '_wayfolk-check', {}, 120), { method: 'HEAD' });
       out.credentials = res.status === 404 || res.ok ? 'ok' : res.status === 403 || res.status === 401 ? 'abgelehnt (Key oder Bucket-Name falsch?)' : `Status ${res.status}`;
     } catch (e) { out.credentials = 'nicht erreichbar: ' + e.message; }
-    try {
-      const { url } = this.presignPut('_wayfolk-check', 'image/jpeg');
+    const preflight = async (url) => {
       const res = await this.fetch(url, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'content-type' } });
       const allow = res.headers.get('access-control-allow-origin');
-      out.cors = res.ok && (allow === '*' || allow === origin) ? 'ok' : `fehlt für ${origin} (Antwort ${res.status}${allow ? ', erlaubt: ' + allow : ''})`;
+      let body = '';
+      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 300); } catch { /* ohne Text */ }
+      return { status: res.status, allow, body, good: res.ok && (allow === '*' || allow === origin) };
+    };
+    try {
+      const signed = await preflight(this.presignPut('_wayfolk-check', 'image/jpeg').url);
+      out.cors = signed.good ? 'ok' : `fehlt für ${origin} (Antwort ${signed.status}${signed.allow ? ', erlaubt: ' + signed.allow : ''})`;
+      if (!signed.good) {
+        out.corsDetail = { mitSignatur: signed };
+        try { out.corsDetail.ohneSignatur = await preflight(`https://${this.host}/${this.bucket}/_wayfolk-check`); } catch (e) { out.corsDetail.ohneSignatur = String(e.message); }
+      }
     } catch (e) { out.cors = 'nicht prüfbar: ' + e.message; }
     out.ok = out.credentials === 'ok' && out.cors === 'ok';
     return out;

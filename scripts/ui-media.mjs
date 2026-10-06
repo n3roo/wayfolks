@@ -99,11 +99,13 @@ try {
   await shot(a, 'm04-vollbild');
   await a.tap('.lightbox .icon-btn[aria-label="Bildunterschrift bearbeiten"]'); // echte Berührung statt Programm-Klick
   await waitFor(a, () => document.querySelector('.sheet textarea'), null, { label: 'Unterschrift' });
-  await sleep(300);
+  await sleep(400);
+  assert.equal(await a.evaluate(() => { const r = document.querySelector('.sheet textarea').getBoundingClientRect(); return !!document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2)?.closest('.sheet'); }), true, 'Fenster liegt über dem Vollbild');
   await typeInto(a, '.sheet textarea', 'Los geht die Fahrt!');
   await clickText(a, '.sheet .btn', 'Speichern');
   await waitFor(a, () => document.querySelector('.lb-cap')?.textContent === 'Los geht die Fahrt!', null, { label: 'Unterschrift sichtbar' });
   await waitFor(a, () => window.__wf.state.pending === 0, null, { label: 'Unterschrift gesendet' });
+  await waitFor(a, () => !document.querySelector('.sheet') && !document.querySelector('.backdrop'), null, { label: 'Fenster ganz weg' });
   await a.tap('.lightbox .icon-btn[aria-label="Schließen"]');
   await waitFor(a, () => !document.querySelector('.lightbox'), null, { label: 'Vollbild zu' });
   ok('Vollbild, Bildunterschrift speichern, schließen');

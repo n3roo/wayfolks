@@ -4,9 +4,13 @@ import { state, on } from '../state.js';
 import { net } from '../net.js';
 import { createPlan } from './plan.js';
 import { createTeam } from './team.js';
+import { createLive } from './live.js';
+import { createStory } from './story.js';
 
 const TABS = [
   { id: 'plan', label: 'Plan', icon: 'route' },
+  { id: 'live', label: 'Unterwegs', icon: 'compass' },
+  { id: 'story', label: 'Rückblick', icon: 'book' },
   { id: 'team', label: 'Gruppe', icon: 'users' },
 ];
 
@@ -33,11 +37,13 @@ export function tripView({ tripId, tab = 'plan', navigate }) {
     root.replaceChildren();
     pages = {
       plan: createPlan({ tripId, navigate, goTeam: () => setTab('team') }),
+      live: createLive({ tripId, navigate }),
+      story: createStory({ tripId, navigate, goLive: () => setTab('live', { push: true }) }),
       team: createTeam({ tripId, navigate }),
     };
     tabbar = h('nav', { class: 'tabbar', 'aria-label': 'Bereiche der Reise' },
       TABS.map((t) => h('button', { 'data-tab': t.id, onclick: () => setTab(t.id), 'aria-label': t.label }, iconEl(t.icon), h('span', null, t.label))));
-    root.append(pages.plan.el, pages.team.el, tabbar);
+    root.append(pages.plan.el, pages.live.el, pages.story.el, pages.team.el, tabbar);
     setTab(tab);
   }
 

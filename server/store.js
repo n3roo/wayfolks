@@ -1,4 +1,5 @@
 // Fachlogik: Benutzer, Reisen, Stopps, Einladungen. Prüft alle Rechte.
+import { MIME_EXT } from './storage.js';
 import {
   AppError, newId, newSecret, sha256, newRecoveryCode, hashRecoveryCode,
   isId, str, longText, dateOrNull, coord, colorFor, USER_COLORS, nowIso,
@@ -8,13 +9,22 @@ export const LIMITS = {
   tripsPerUser: 60,
   stopsPerTrip: 250,
   coverBytes: 400 * 1024,
+  mediaPerTrip: 1500,
+  imageBytes: 12 * 1024 * 1024,
+  videoBytes: 100 * 1024 * 1024,
+  thumbBytes: 600 * 1024,
 };
 
 const EDIT_ROLES = ['owner', 'editor'];
 
 export class Store {
-  constructor(db) {
+  constructor(db, { storage = null } = {}) {
     this.db = db;
+    this.storage = storage;
+  }
+
+  clientConfig() {
+    return { media: !!this.storage, maxVideoBytes: LIMITS.videoBytes, maxImageBytes: LIMITS.imageBytes };
   }
 
   // ---------- Benutzer & Geräte ----------
@@ -237,13 +247,16 @@ export class Store {
   async deleteTrip(userId, tripId) {
     await this.requireRole(tripId, userId, ['owner']);
     const members = await this.memberIds(tripId);
+    const files = await this.db.execute('SELECT file_key, thumb_key FROM media WHERE trip_id = ?', [tripId]);
     // Kinder-Tabellen werden per ON DELETE CASCADE entfernt; zur Sicherheit explizit
     await this.db.batch([
+      ['DELETE FROM media WHERE trip_id = ?', [tripId]],
       ['DELETE FROM stops WHERE trip_id = ?', [tripId]],
       ['DELETE FROM invites WHERE trip_id = ?', [tripId]],
       ['DELETE FROM members WHERE trip_id = ?', [tripId]],
       ['DELETE FROM trips WHERE id = ?', [tripId]],
     ]);
+    if (this.storage) for (const f of files.rows) this._removeFiles(f);
     return { members };
   }
 
@@ -316,9 +329,145 @@ export class Store {
       role,
       members: await this.members(tripId),
       stops: stops.rows.map((s) => this._stopDto(s)),
+      media: await this.listMedia(tripId),
     };
     if (role === 'owner') snapshot.invites = await this.listInvites(userId, tripId);
     return snapshot;
+  }
+
+  // ---------- Fotos & Videos ----------
+
+  _mediaDto(r) {
+    return {
+      id: r.id, trip_id: r.trip_id, stop_id: r.stop_id || null, kind: r.kind,
+      url: this.storage ? this.storage.publicUrl(r.file_key) : null,
+      thumb: this.storage && r.thumb_key ? this.storage.publicUrl(r.thumb_key) : null,
+      mime: r.mime, width: r.width, height: r.height, duration: r.duration, bytes: r.bytes,
+      caption: r.caption, taken_at: r.taken_at, lat: r.lat, lon: r.lon,
+      created_by: r.created_by, created_at: r.created_at,
+    };
+  }
+
+  async listMedia(tripId) {
+    const r = await this.db.execute('SELECT * FROM media WHERE trip_id = ? ORDER BY COALESCE(taken_at, created_at), created_at', [tripId]);
+    return r.rows.map((x) => this._mediaDto(x));
+  }
+
+  _removeFiles(f) {
+    for (const k of [f.file_key, f.thumb_key]) if (k) this.storage.remove(k).catch(() => {});
+  }
+
+  _mediaKeys(tripId, id, mime) {
+    const ext = MIME_EXT[mime];
+    return { file: `${tripId}/${id}.${ext}`, thumb: `${tripId}/${id}_t.jpg` };
+  }
+
+  _checkMediaInput(data) {
+    const kind = data.kind;
+    if (kind !== 'image' && kind !== 'video') throw new AppError('invalid', 'Ungültiger Medientyp');
+    const mime = data.mime;
+    if (!MIME_EXT[mime] || !mime.startsWith(kind + '/')) throw new AppError('invalid', 'Dieses Dateiformat wird nicht unterstützt.');
+    const max = kind === 'video' ? LIMITS.videoBytes : LIMITS.imageBytes;
+    const bytes = Number(data.bytes);
+    if (!Number.isFinite(bytes) || bytes <= 0) throw new AppError('invalid', 'Ungültige Dateigröße');
+    if (bytes > max) throw new AppError('too_large', kind === 'video' ? `Das Video ist zu groß (maximal ${Math.round(LIMITS.videoBytes / 1048576)} MB).` : 'Das Bild ist zu groß.');
+    return { kind, mime, bytes };
+  }
+
+  async prepareMedia(userId, tripId, data) {
+    await this.requireRole(tripId, userId, EDIT_ROLES);
+    if (!this.storage) throw new AppError('no_storage', 'Der Foto-Speicher ist noch nicht eingerichtet.');
+    if (!isId(data.id)) throw new AppError('invalid', 'Ungültige ID');
+    const { mime } = this._checkMediaInput(data);
+    const existing = await this.db.execute('SELECT trip_id FROM media WHERE id = ?', [data.id]);
+    if (existing.rows[0]) {
+      if (existing.rows[0].trip_id !== tripId) throw new AppError('forbidden', 'ID bereits vergeben');
+      return { done: true };
+    }
+    const n = await this.db.execute('SELECT COUNT(*) AS n FROM media WHERE trip_id = ?', [tripId]);
+    if (n.rows[0].n >= LIMITS.mediaPerTrip) throw new AppError('limit', 'Diese Reise hat die maximale Anzahl an Fotos und Videos erreicht.');
+    const keys = this._mediaKeys(tripId, data.id, mime);
+    const out = { put: this.storage.presignPut(keys.file, mime) };
+    if (data.thumb) out.thumb = this.storage.presignPut(keys.thumb, 'image/jpeg');
+    return out;
+  }
+
+  async addMedia(userId, tripId, data) {
+    await this.requireRole(tripId, userId, EDIT_ROLES);
+    if (!this.storage) throw new AppError('no_storage', 'Der Foto-Speicher ist noch nicht eingerichtet.');
+    if (!isId(data.id)) throw new AppError('invalid', 'Ungültige ID');
+    const found = await this.db.execute('SELECT * FROM media WHERE id = ?', [data.id]);
+    if (found.rows[0]) {
+      if (found.rows[0].trip_id !== tripId) throw new AppError('forbidden', 'ID bereits vergeben');
+      return this._mediaDto(found.rows[0]);
+    }
+    const { kind, mime, bytes } = this._checkMediaInput(data);
+    let stopId = null;
+    if (data.stop_id !== undefined && data.stop_id !== null) {
+      if (!isId(data.stop_id)) throw new AppError('invalid', 'Ungültiger Stopp');
+      const st = await this.db.execute('SELECT id FROM stops WHERE id = ? AND trip_id = ?', [data.stop_id, tripId]);
+      if (!st.rows[0]) throw new AppError('not_found', 'Stopp nicht gefunden');
+      stopId = data.stop_id;
+    }
+    const keys = this._mediaKeys(tripId, data.id, mime);
+    const head = await this.storage.head(keys.file);
+    if (!head) throw new AppError('upload_missing', 'Die Datei ist nicht angekommen. Bitte noch einmal versuchen.');
+    if (head.size > (kind === 'video' ? LIMITS.videoBytes : LIMITS.imageBytes)) {
+      this.storage.remove(keys.file).catch(() => {});
+      throw new AppError('too_large', 'Die Datei ist zu groß.');
+    }
+    let thumbKey = null;
+    if (data.thumb) {
+      const th = await this.storage.head(keys.thumb);
+      if (th && th.size <= LIMITS.thumbBytes) thumbKey = keys.thumb;
+      else if (th) this.storage.remove(keys.thumb).catch(() => {});
+    }
+    const dim = (v) => (Number.isFinite(Number(v)) && Number(v) > 0 && Number(v) < 20000 ? Math.round(Number(v)) : null);
+    const dur = Number.isFinite(Number(data.duration)) && Number(data.duration) >= 0 && Number(data.duration) < 86400 ? Number(data.duration) : null;
+    let taken = null;
+    if (typeof data.taken_at === 'string' && !Number.isNaN(Date.parse(data.taken_at))) taken = new Date(data.taken_at).toISOString();
+    let lat = null; let lon = null;
+    if (data.lat != null && data.lon != null) { try { [lat, lon] = coord(data.lat, data.lon); } catch { /* ohne Ort */ } }
+    const ts = nowIso();
+    await this.db.batch([
+      [`INSERT INTO media(id, trip_id, stop_id, kind, file_key, thumb_key, mime, width, height, duration, bytes, caption, taken_at, lat, lon, created_by, created_at)
+        VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [data.id, tripId, stopId, kind, keys.file, thumbKey, mime, dim(data.width), dim(data.height), dur, head.size || bytes,
+          longText(data.caption, 500, 'Bildunterschrift'), taken || ts, lat, lon, userId, ts]],
+      ['UPDATE trips SET updated_at = ? WHERE id = ?', [ts, tripId]],
+    ]);
+    const r = await this.db.execute('SELECT * FROM media WHERE id = ?', [data.id]);
+    return this._mediaDto(r.rows[0]);
+  }
+
+  async updateMedia(userId, tripId, mediaId, patch) {
+    await this.requireRole(tripId, userId, EDIT_ROLES);
+    const cur = await this.db.execute('SELECT * FROM media WHERE id = ? AND trip_id = ?', [mediaId, tripId]);
+    if (!cur.rows[0]) throw new AppError('not_found', 'Datei nicht gefunden');
+    const sets = []; const args = [];
+    if (patch.caption !== undefined) { sets.push('caption = ?'); args.push(longText(patch.caption, 500, 'Bildunterschrift')); }
+    if (patch.stop_id !== undefined) {
+      if (patch.stop_id === null) { sets.push('stop_id = NULL'); }
+      else {
+        const st = await this.db.execute('SELECT id FROM stops WHERE id = ? AND trip_id = ?', [patch.stop_id, tripId]);
+        if (!st.rows[0]) throw new AppError('not_found', 'Stopp nicht gefunden');
+        sets.push('stop_id = ?'); args.push(patch.stop_id);
+      }
+    }
+    if (sets.length) await this.db.execute(`UPDATE media SET ${sets.join(', ')} WHERE id = ?`, [...args, mediaId]);
+    const r = await this.db.execute('SELECT * FROM media WHERE id = ?', [mediaId]);
+    return this._mediaDto(r.rows[0]);
+  }
+
+  async deleteMedia(userId, tripId, mediaId) {
+    const role = await this.requireRole(tripId, userId, EDIT_ROLES);
+    const cur = await this.db.execute('SELECT * FROM media WHERE id = ? AND trip_id = ?', [mediaId, tripId]);
+    const row = cur.rows[0];
+    if (!row) return { id: mediaId };
+    if (role !== 'owner' && row.created_by !== userId) throw new AppError('forbidden', 'Du kannst nur deine eigenen Fotos und Videos löschen.');
+    await this.db.execute('DELETE FROM media WHERE id = ?', [mediaId]);
+    if (this.storage) this._removeFiles(row);
+    return { id: mediaId };
   }
 
   // ---------- Stopps ----------
@@ -393,6 +542,7 @@ export class Store {
     await this.requireRole(tripId, userId, EDIT_ROLES);
     const ts = nowIso();
     await this.db.batch([
+      ['UPDATE media SET stop_id = NULL WHERE stop_id = ? AND trip_id = ?', [stopId, tripId]],
       ['DELETE FROM stops WHERE id = ? AND trip_id = ?', [stopId, tripId]],
       ['UPDATE trips SET updated_at = ? WHERE id = ?', [ts, tripId]],
     ]);

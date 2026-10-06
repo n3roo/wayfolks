@@ -9,7 +9,7 @@
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
     "test": "node --test --test-concurrency=1 test/*.test.js",
-    "test:ui": "node scripts/ui-check.mjs"
+    "test:ui": "node scripts/ui-check.mjs && node scripts/ui-media.mjs"
   },
   "dependencies": {
     "ws": "^8.18.0"

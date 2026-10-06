@@ -5,7 +5,7 @@ import { toast } from './ui.js';
 
 const OUTBOX_KEY = 'outbox';
 // Bei diesen Aktionen ist "gibt es nicht mehr / keine Berechtigung" beim Wiederholen kein Fehler
-const QUIET_ON_REPEAT = new Set(['trip.delete', 'trip.leave', 'stop.delete', 'member.remove']);
+const QUIET_ON_REPEAT = new Set(['trip.delete', 'trip.leave', 'stop.delete', 'member.remove', 'media.delete', 'media.update']);
 
 class Net {
   constructor() {
@@ -145,6 +145,7 @@ class Net {
   async onWelcome(m) {
     setUser(m.user);
     saveCreds({ user: m.user, secret: loadCreds().secret });
+    if (m.config) state.config = { ...state.config, ...m.config };
     setTrips(m.trips);
     this.setConn('online');
     await this.flush();

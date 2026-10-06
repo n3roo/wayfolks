@@ -1,7 +1,9 @@
 // Stopp-Details: bearbeiten, abhaken, verschieben, löschen
 import { h, sheet, toast, confirmDialog, debounce, fmtDay, iconEl } from '../ui.js';
 import { net } from '../net.js';
-import { state, canEdit, on } from '../state.js';
+import { state, canEdit, on, mediaOf } from '../state.js';
+import { mediaGrid, openAddMedia } from './mediaUi.js';
+import { openItem } from './lightbox.js';
 
 export function openStopSheet({ tripId, stopId, onMove, onDeleted }) {
   const find = () => state.tripData[tripId]?.stops.find((s) => s.id === stopId);
@@ -27,6 +29,19 @@ export function openStopSheet({ tripId, stopId, onMove, onDeleted }) {
     visitedRow.classList.toggle('on', !!s.visited_at);
     visitedRow.replaceChildren(h('span', { class: 'box' }, iconEl('check', 'sm')), h('span', null, s.visited_at ? 'Besucht – Haken wieder entfernen' : 'Als besucht abhaken'));
   }
+  const mediaBox = h('div', { class: 'stop-media' });
+  const stopItems = () => mediaOf(tripId).filter((m) => m.stop_id === stopId);
+  function drawMedia() {
+    const items = stopItems();
+    mediaBox.replaceChildren(
+      h('div', { class: 'section-row' },
+        h('span', { class: 'lbl' }, items.length ? `Fotos & Videos (${items.length})` : 'Fotos & Videos'),
+        editable ? h('button', { class: 'btn soft small', onclick: () => openAddMedia({ tripId, stopId, stopName: find()?.name }) }, iconEl('camera', 'sm'), 'Hinzufügen') : null),
+      items.length
+        ? mediaGrid(items, { tripId, onOpen: (m) => openItem({ tripId, m, getItems: stopItems }) })
+        : h('p', { class: 'hint', style: { margin: '0 4px 12px' } }, editable ? 'Noch nichts hier. Halte Erinnerungen direkt am Ort fest.' : 'Noch keine Fotos oder Videos.'));
+  }
+
   visitedRow.addEventListener('click', () => {
     const s = find();
     if (!s) return;
@@ -52,13 +67,14 @@ export function openStopSheet({ tripId, stopId, onMove, onDeleted }) {
   const pos = h('div', { class: 'list-btn', style: { padding: '12px 4px' } },
     h('span', { class: 'ic' }, iconEl('pin')),
     h('span', { style: { flex: 1 } }, 'Position', h('small', null, `${initial.lat.toFixed(4)}, ${initial.lon.toFixed(4)}`)),
-    editable ? h('button', { class: 'btn soft small', onclick: async () => { await layer.close(); onMove?.(find()); } }, 'Verschieben') : null);
+    editable && onMove ? h('button', { class: 'btn soft small', onclick: async () => { await layer.close(); onMove(find()); } }, 'Verschieben') : null);
 
   const body = h('div', null,
     h('label', { class: 'field' }, h('span', null, 'Name'), name),
     meta,
     h('label', { class: 'field' }, h('span', null, 'Geplantes Datum'), date),
     editable ? visitedRow : (find().visited_at ? h('p', { class: 'chip teal' }, 'Besucht') : null),
+    mediaBox,
     h('label', { class: 'field' }, h('span', null, 'Beschreibung'), desc),
     h('label', { class: 'field' }, h('span', null, 'Notizen'), notes),
     pos,
@@ -83,6 +99,7 @@ export function openStopSheet({ tripId, stopId, onMove, onDeleted }) {
     if (active !== notes && s.notes !== notes.value) notes.value = s.notes;
     if (active !== date && (s.planned_date || '') !== date.value) date.value = s.planned_date || '';
     drawMeta();
+    drawMedia();
   });
 
   const layer = sheet({
@@ -90,5 +107,6 @@ export function openStopSheet({ tripId, stopId, onMove, onDeleted }) {
     onClose: () => { save.flush(); off(); },
   });
   drawMeta();
+  drawMedia();
   return layer;
 }

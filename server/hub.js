@@ -129,7 +129,7 @@ export class Hub {
     conn.secret = msg.secret;
     this.store.touchDevice(msg.secret).catch(() => {});
     const trips = await this.store.listTrips(user.id);
-    this._send(conn, { t: 'welcome', user, trips });
+    this._send(conn, { t: 'welcome', user, trips, config: this.store.clientConfig() });
   }
 
   async _peek(conn, msg) {
@@ -335,6 +335,28 @@ export class Hub {
         const { ids } = await s.reorderStops(c.user.id, tripId, p.ids);
         this.broadcast(tripId, 'stops.order', { ids }, c);
         return { ids };
+      },
+
+      'media.prepare': async (c, p) => s.prepareMedia(c.user.id, need(p, 'tripId'), p.media || {}),
+      'media.add': async (c, p) => {
+        const tripId = need(p, 'tripId');
+        const media = await s.addMedia(c.user.id, tripId, p.media || {});
+        this.broadcast(tripId, 'media', { media }, c);
+        await touchList(tripId);
+        return { media };
+      },
+      'media.update': async (c, p) => {
+        const tripId = need(p, 'tripId');
+        const media = await s.updateMedia(c.user.id, tripId, need(p, 'mediaId'), p.patch || {});
+        this.broadcast(tripId, 'media', { media }, c);
+        return { media };
+      },
+      'media.delete': async (c, p) => {
+        const tripId = need(p, 'tripId');
+        const mediaId = need(p, 'mediaId');
+        await s.deleteMedia(c.user.id, tripId, mediaId);
+        this.broadcast(tripId, 'media.del', { id: mediaId }, c);
+        return {};
       },
 
       'invite.ensure': async (c, p) => {

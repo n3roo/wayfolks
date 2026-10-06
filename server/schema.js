@@ -64,4 +64,28 @@ export const MIGRATIONS = [
     )`,
     `CREATE INDEX idx_invites_trip ON invites(trip_id)`,
   ],
+  // 2: Fotos und Videos
+  [
+    `CREATE TABLE media (
+      id TEXT PRIMARY KEY,
+      trip_id TEXT NOT NULL REFERENCES trips(id) ON DELETE CASCADE,
+      stop_id TEXT,
+      kind TEXT NOT NULL CHECK (kind IN ('image','video')),
+      file_key TEXT NOT NULL,
+      thumb_key TEXT,
+      mime TEXT NOT NULL,
+      width INTEGER,
+      height INTEGER,
+      duration REAL,
+      bytes INTEGER NOT NULL DEFAULT 0,
+      caption TEXT NOT NULL DEFAULT '',
+      taken_at TEXT,
+      lat REAL,
+      lon REAL,
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    )`,
+    `CREATE INDEX idx_media_trip ON media(trip_id, taken_at)`,
+    `CREATE INDEX idx_media_stop ON media(stop_id)`,
+  ],
 ];

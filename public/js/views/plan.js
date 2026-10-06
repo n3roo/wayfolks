@@ -351,7 +351,7 @@ export function createPlan({ tripId, navigate, goTeam }) {
 
   return {
     el,
-    show() { map.invalidate(); if (!didFit && data()?.stops.length) { didFit = true; fitAll(false); } },
+    show() { map.invalidate(); dock.set(dock.state, false); if (!didFit && data()?.stops.length) { didFit = true; fitAll(false); } },
     hide() {},
     focusStop(id) { selectStop(id, { open: false }); },
     map,

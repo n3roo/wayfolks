@@ -41,8 +41,8 @@ test('Die ganze Fachlogik läuft auch über den Turso-Client', async () => {
   const fake = await startFakeTurso();
   try {
     const db = new TursoHttp({ url: fake.url, token: fake.token });
-    assert.equal(await migrate(db), 1);
-    assert.equal(await migrate(db), 1, 'zweiter Lauf ändert nichts');
+    assert.equal(await migrate(db), 2);
+    assert.equal(await migrate(db), 2, 'zweiter Lauf ändert nichts');
     const store = new Store(db);
     const { user, secret } = await store.registerUser('Turso-Tina');
     assert.ok(await store.authDevice(user.id, secret));

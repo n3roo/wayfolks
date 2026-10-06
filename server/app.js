@@ -3,6 +3,7 @@ import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { WebSocketServer } from 'ws';
+import { createStorage } from './storage.js';
 import { Store } from './store.js';
 import { Hub } from './hub.js';
 import { StaticFiles } from './static.js';
@@ -29,13 +30,14 @@ function origin(req) {
 
 function csp(env) {
   const media = env.MEDIA_PUBLIC_URL ? new URL(env.MEDIA_PUBLIC_URL).origin : '';
-  const upload = env.R2_ENDPOINT_HOST ? `https://${env.R2_ENDPOINT_HOST}` : 'https://*.r2.cloudflarestorage.com';
+  const s3 = env.S3_ENDPOINT ? `https://${env.S3_ENDPOINT.replace(/^https?:\/\//, '')}` : '';
+  const upload = env.S3_ENDPOINT ? `https://${env.S3_ENDPOINT.replace(/^https?:\/\//, '')}` : '';
   return [
     "default-src 'self'",
     "script-src 'self'",
     "style-src 'self' 'unsafe-inline'",
-    `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org ${media}`.trim(),
-    `media-src 'self' blob: ${media}`.trim(),
+    `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org ${media} ${s3}`.replace(/\s+/g, ' ').trim(),
+    `media-src 'self' blob: ${media} ${s3}`.replace(/\s+/g, ' ').trim(),
     `connect-src 'self' ws: wss: https://*.basemaps.cartocdn.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://photon.komoot.io https://nominatim.openstreetmap.org https://router.project-osrm.org https://routing.openstreetmap.de ${media} ${upload}`.replace(/\s+/g, ' ').trim(),
     "font-src 'self'",
     "worker-src 'self'",
@@ -46,9 +48,9 @@ function csp(env) {
   ].join('; ');
 }
 
-export async function createApp({ db, publicDir = path.join(__dirname, '..', 'public'), env = process.env, log = console.error }) {
+export async function createApp({ db, storage = createStorage(process.env), publicDir = path.join(__dirname, '..', 'public'), env = process.env, log = console.error }) {
   const version = await migrate(db);
-  const store = new Store(db);
+  const store = new Store(db, { storage });
   const hub = new Hub(store, { log });
   const files = new StaticFiles(publicDir);
   const startedAt = Date.now();
@@ -61,6 +63,8 @@ export async function createApp({ db, publicDir = path.join(__dirname, '..', 'pu
       res.setHeader('Content-Security-Policy', policy);
       res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
       res.setHeader('Permissions-Policy', 'geolocation=(self), camera=(self), microphone=()');
+      const dev = pathname.match(/^\/dev-media\/([A-Za-z0-9_\-./]+)$/);
+      if (dev && storage?.kind === 'dev' && !dev[1].includes('..')) return await storage.handle(req, res, dev[1]);
       if (req.method !== 'GET' && req.method !== 'HEAD') {
         res.writeHead(405, { Allow: 'GET, HEAD' });
         return res.end();

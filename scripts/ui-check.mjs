@@ -143,7 +143,7 @@ try {
   ok('Dock lässt sich bis auf volle Höhe ziehen');
 
   // Umsortieren: Venedig (4.) vor Ljubljana (2.)
-  const handles = await a.$$eval('.stop .handle', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }));
+  const handles = await a.$$eval('.plan:not(.live) .stop .handle', (els) => els.map((e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; }));
   assert.equal(handles.length, 4);
   const from = handles[3], to = handles[1];
   await a.mouse.move(from.x, from.y); await a.mouse.down();
@@ -151,7 +151,7 @@ try {
   await shot(a, '10-reorder-dragging');
   await a.mouse.up();
   await sleep(500);
-  const order = await a.$$eval('.stop .txt b', (els) => els.map((e) => e.textContent));
+  const order = await a.$$eval('.plan:not(.live) .stop .txt b', (els) => els.map((e) => e.textContent));
   assert.deepEqual(order, ['Wien', 'Venedig', 'Ljubljana', 'Triest']);
   await waitFor(a, () => window.__wf.net.outbox.length === 0, null, { label: 'Warteschlange leer' });
   const snap2 = await srv.app.store.openTrip(snap.members[0].id, tripId);
@@ -159,7 +159,7 @@ try {
   ok('Stopp per Griff umsortiert und auf dem Server gespeichert');
 
   // Details
-  await click(a, '.stop:nth-of-type(1)');
+  await click(a, '.plan:not(.live) .stop:nth-of-type(1)');
   await waitFor(a, () => document.querySelector('.sheet textarea'), null, { label: 'Stopp-Details' });
   await sleep(450);
   await shot(a, '11-stop-sheet');
@@ -219,12 +219,12 @@ try {
   ok('Live-Sync: neuer Stopp erscheint sofort beim Gast');
 
   // Ben (Mitbearbeiter) benennt um → Anna sieht es
-  await click(b, '.stop:nth-of-type(1)');
+  await click(b, '.plan:not(.live) .stop:nth-of-type(1)');
   await waitFor(b, () => document.querySelector('.sheet input.title'), null);
   await sleep(450);
   await typeInto(b, '.sheet input.title', 'Wien Zentrum');
   await sleep(1100);
-  await waitFor(a, () => [...document.querySelectorAll('.stop .txt b')].some((e) => e.textContent === 'Wien Zentrum'), null, { label: 'Live: Anna sieht neuen Namen', timeout: 6000 });
+  await waitFor(a, () => [...document.querySelectorAll('.plan:not(.live) .stop .txt b')].some((e) => e.textContent === 'Wien Zentrum'), null, { label: 'Live: Anna sieht neuen Namen', timeout: 6000 });
   ok('Live-Sync: Umbenennen durch Mitbearbeiter erscheint bei der Besitzerin');
   await b.mouse.click(206, 40);
   await waitFor(b, () => !document.querySelector('.sheet'), null);
@@ -252,7 +252,7 @@ try {
   await a.setOfflineMode(true);
   await waitFor(a, () => window.__wf.state.conn !== 'online', null, { label: 'Offline erkannt', timeout: 15000 });
   await sleep(300);
-  await click(a, '.stop:nth-of-type(1)');
+  await click(a, '.plan:not(.live) .stop:nth-of-type(1)');
   await waitFor(a, () => document.querySelector('.sheet input.title'), null);
   await sleep(450);
   await typeInto(a, '.sheet input.title', 'Wien offline');
@@ -267,7 +267,7 @@ try {
   await waitFor(a, () => window.__wf.state.conn === 'online' && window.__wf.net.outbox.length === 0, null, { label: 'Wieder online, Warteschlange abgearbeitet', timeout: 30000 });
   const stops = (await srv.app.store.openTrip(snap.members[0].id, tripId)).stops.map((s) => s.name);
   assert.ok(stops.includes('Wien offline'), 'Offline-Änderung ist angekommen: ' + stops.join(', '));
-  await waitFor(b, () => [...document.querySelectorAll('.stop .txt b')].some((e) => e.textContent === 'Wien offline'), null, { label: 'Gast sieht nachgeholte Änderung', timeout: 8000 });
+  await waitFor(b, () => [...document.querySelectorAll('.plan:not(.live) .stop .txt b')].some((e) => e.textContent === 'Wien offline'), null, { label: 'Gast sieht nachgeholte Änderung', timeout: 8000 });
   ok('Offline bearbeiten: Änderung wartet, wird nach Verbindung nachgeholt und erreicht den Gast');
 
   allErrors.push(...A.errors, ...B.errors);

@@ -5,6 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { LocalSqlite } from '../server/db.js';
 import { createApp } from '../server/app.js';
+import { DevStorage } from '../server/storage.js';
 
 const require = createRequire('/opt/npm-tools/node_modules/');
 export const puppeteer = require('puppeteer-core');
@@ -21,7 +22,7 @@ export function chromePath() {
 
 export async function startServer() {
   const db = new LocalSqlite(':memory:');
-  const app = await createApp({ db, log: (...a) => console.error('[server]', ...a) });
+  const app = await createApp({ db, storage: new DevStorage(), log: (...a) => console.error('[server]', ...a) });
   await new Promise((r) => app.server.listen(0, '127.0.0.1', r));
   return { app, port: app.server.address().port, base: `http://127.0.0.1:${app.server.address().port}` };
 }

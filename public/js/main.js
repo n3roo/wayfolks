@@ -2,6 +2,7 @@
 import { $, h, toast, handleLayerPop, closeAllLayers } from './ui.js';
 import { state, on, loadCreds, loadCache, clearCreds } from './state.js';
 import { net } from './net.js';
+import { restoreUploads } from './media.js';
 import { welcomeView } from './views/welcome.js';
 import { homeView } from './views/home.js';
 import { joinView, acceptInvite } from './views/join.js';
@@ -14,7 +15,7 @@ let authProblem = null;
 
 function parse(path) {
   let m;
-  if ((m = path.match(/^\/t\/([A-Za-z0-9_-]+)(?:\/(plan|team))?\/?$/))) return { name: 'trip', tripId: m[1], tab: m[2] || 'plan' };
+  if ((m = path.match(/^\/t\/([A-Za-z0-9_-]+)(?:\/(plan|team|live|story))?\/?$/))) return { name: 'trip', tripId: m[1], tab: m[2] || 'plan' };
   if ((m = path.match(/^\/j\/([A-Za-z0-9_-]+)\/?$/))) return { name: 'join', token: m[1] };
   return { name: 'home' };
 }
@@ -103,6 +104,7 @@ if ('serviceWorker' in navigator) {
   if (creds) {
     state.user = { id: creds.id, name: creds.name, color: creds.color };
     await loadCache();
+    await restoreUploads();
   }
   render();
   net.start();

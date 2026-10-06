@@ -9,6 +9,9 @@ export const state = {
   connectingSince: Date.now(),
   pending: 0,          // Anzahl noch nicht gesendeter Änderungen
   lastError: null,
+  config: { media: false, maxVideoBytes: 100 * 1024 * 1024 },
+  uploads: {},         // tripId -> wartende Uploads (Fotos/Videos, die noch nicht beim Server sind)
+  lastFix: null,       // letzter Standort {lat, lon, acc, at}, nur wenn der Standort an ist
 };
 
 // ---------- Ereignisse ----------
@@ -63,7 +66,7 @@ export function persistSoon() {
     if (!state.user) return;
     try {
       const slim = {};
-      for (const [id, d] of Object.entries(state.tripData)) slim[id] = { trip: d.trip, role: d.role, members: d.members, stops: d.stops };
+      for (const [id, d] of Object.entries(state.tripData)) slim[id] = { trip: d.trip, role: d.role, members: d.members, stops: d.stops, media: d.media || [] };
       await idbSet('cache:' + state.user.id, { trips: state.trips, tripData: slim, at: Date.now() });
     } catch (e) { console.error(e); }
   }, 400);
@@ -74,7 +77,7 @@ export async function loadCache() {
   if (c && state.trips === null) {
     state.trips = c.trips || [];
     for (const [id, d] of Object.entries(c.tripData || {})) {
-      if (!state.tripData[id]) state.tripData[id] = { ...d, online: [], invites: null, fromCache: true };
+      if (!state.tripData[id]) state.tripData[id] = { ...d, media: d.media || [], online: [], invites: null, fromCache: true };
     }
     emit('trips');
   }
@@ -107,7 +110,7 @@ export function applyLocal(op, p) {
       if (!state.trips.some((t) => t.id === p.id)) {
         state.trips.unshift({ ...dto, role: 'owner', stop_count: 0, visited_count: 0, members: [{ ...me, role: 'owner' }] });
       }
-      state.tripData[p.id] = { trip: dto, role: 'owner', members: [{ ...me, role: 'owner' }], stops: [], online: [], invites: [] };
+      state.tripData[p.id] = { trip: dto, role: 'owner', members: [{ ...me, role: 'owner' }], stops: [], media: [], online: [], invites: [] };
       emit('trips');
       break;
     }
@@ -165,9 +168,24 @@ export function applyLocal(op, p) {
       recount(p.tripId); emit('trip:' + p.tripId);
       break;
     }
+    case 'media.update': {
+      const m = state.tripData[p.tripId]?.media.find((x) => x.id === p.mediaId);
+      if (!m) break;
+      Object.assign(m, p.patch);
+      emit('trip:' + p.tripId);
+      break;
+    }
+    case 'media.delete': {
+      const d = state.tripData[p.tripId];
+      if (!d) break;
+      d.media = d.media.filter((x) => x.id !== p.mediaId);
+      emit('trip:' + p.tripId);
+      break;
+    }
     case 'stop.delete': {
       const d = state.tripData[p.tripId];
       if (!d) break;
+      d.media.forEach((m) => { if (m.stop_id === p.stopId) m.stop_id = null; });
       d.stops = d.stops.filter((x) => x.id !== p.stopId);
       recount(p.tripId); emit('trip:' + p.tripId);
       break;
@@ -208,6 +226,7 @@ export function setSnapshot(tripId, snap) {
     role: snap.role,
     members: snap.members,
     stops: sortedByPosition(snap.stops),
+    media: snap.media || [],
     online: snap.online || [],
     invites: snap.invites || (prev?.invites ?? null),
   };
@@ -228,7 +247,16 @@ export function applyEvent(tripId, k, v) {
       sortedByPosition(d.stops);
       break;
     }
-    case 'stop.del': d.stops = d.stops.filter((s) => s.id !== v.id); break;
+    case 'stop.del':
+      d.stops = d.stops.filter((s) => s.id !== v.id);
+      d.media.forEach((m) => { if (m.stop_id === v.id) m.stop_id = null; });
+      break;
+    case 'media': {
+      const i = d.media.findIndex((m) => m.id === v.media.id);
+      if (i >= 0) d.media[i] = v.media; else d.media.push(v.media);
+      break;
+    }
+    case 'media.del': d.media = d.media.filter((m) => m.id !== v.id); break;
     case 'stops.order': reorder(d, v.ids); break;
     case 'trip': {
       d.trip = { ...v.trip, cover_local: v.trip.cover_version === d.trip.cover_version ? d.trip.cover_local : null };
@@ -251,4 +279,19 @@ export function applyEvent(tripId, k, v) {
   emit('trip:' + tripId);
   if (k === 'trip' || k === 'members') emit('trips');
   persistSoon();
+}
+
+// Fotos und Videos einer Reise: fertige vom Server plus noch wartende Uploads (chronologisch)
+export function mediaOf(tripId) {
+  const d = state.tripData[tripId];
+  const list = (d?.media || []).slice();
+  for (const u of state.uploads[tripId] || []) {
+    list.push({
+      id: u.id, pending: true, status: u.status, error: u.error, kind: u.kind, stop_id: u.stopId, url: u.kind === 'image' ? u.previewUrl : null,
+      thumb: u.previewUrl, width: u.width, height: u.height, duration: u.duration, caption: u.caption || '', taken_at: u.taken_at,
+      created_by: u.userId, created_at: u.createdAt,
+    });
+  }
+  const t = (m) => Date.parse(m.taken_at || m.created_at) || 0;
+  return list.sort((a, b) => t(a) - t(b));
 }

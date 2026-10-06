@@ -22,7 +22,7 @@ export function blobToDataUrl(blob) {
 }
 
 // Liefert { blob, dataUrl, width, height }
-export async function resizeImage(file, { maxSide = 1600, quality = 0.82, maxBytes = Infinity } = {}) {
+export async function resizeImage(file, { maxSide = 1600, quality = 0.82, maxBytes = Infinity, withDataUrl = true } = {}) {
   const src = await decode(file);
   const w0 = src.width, h0 = src.height;
   let scale = Math.min(1, maxSide / Math.max(w0, h0));
@@ -39,23 +39,28 @@ export async function resizeImage(file, { maxSide = 1600, quality = 0.82, maxByt
     const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', q));
     if (blob && (blob.size <= maxBytes || attempt === 5)) {
       src.close?.();
-      return { blob, dataUrl: await blobToDataUrl(blob), width: w, height: h };
+      return { blob, dataUrl: withDataUrl ? await blobToDataUrl(blob) : null, width: w, height: h };
     }
     if (q > 0.6) q -= 0.1; else scale *= 0.82;
   }
   throw new Error('Bild konnte nicht verkleinert werden');
 }
 
-export function pickFile(accept, { capture } = {}) {
+export function pickFiles(accept, { capture, multiple = false } = {}) {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = accept;
+    if (multiple) input.multiple = true;
     if (capture) input.setAttribute('capture', capture);
     input.style.display = 'none';
-    input.addEventListener('change', () => { resolve(input.files?.[0] || null); input.remove(); });
-    input.addEventListener('cancel', () => { resolve(null); input.remove(); });
+    input.addEventListener('change', () => { resolve([...(input.files || [])]); input.remove(); });
+    input.addEventListener('cancel', () => { resolve([]); input.remove(); });
     document.body.append(input);
     input.click();
   });
+}
+
+export async function pickFile(accept, opts = {}) {
+  return (await pickFiles(accept, opts))[0] || null;
 }

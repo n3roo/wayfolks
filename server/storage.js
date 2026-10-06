@@ -77,19 +77,29 @@ export class S3Storage {
       const res = await this.fetch(this._sign('HEAD', '_wayfolk-check', {}, 120), { method: 'HEAD' });
       out.credentials = res.status === 404 || res.ok ? 'ok' : res.status === 403 || res.status === 401 ? 'abgelehnt (Key oder Bucket-Name falsch?)' : `Status ${res.status}`;
     } catch (e) { out.credentials = 'nicht erreichbar: ' + e.message; }
-    const preflight = async (url) => {
-      const res = await this.fetch(url, { method: 'OPTIONS', headers: { Origin: origin, 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'content-type' } });
+    const preflight = async (url, method, reqHeaders) => {
+      const headers = { Origin: origin, 'Access-Control-Request-Method': method };
+      if (reqHeaders) headers['Access-Control-Request-Headers'] = reqHeaders;
+      const res = await this.fetch(url, { method: 'OPTIONS', headers });
       const allow = res.headers.get('access-control-allow-origin');
       let body = '';
-      try { body = (await res.text()).replace(/\s+/g, ' ').slice(0, 300); } catch { /* ohne Text */ }
+      try { body = (await res.text()).replace(/\s+/g, ' ').replace(/<\?xml[^>]*\?>/, '').slice(0, 160); } catch { /* ohne Text */ }
       return { status: res.status, allow, body, good: res.ok && (allow === '*' || allow === origin) };
     };
     try {
-      const signed = await preflight(this.presignPut('_wayfolk-check', 'image/jpeg').url);
-      out.cors = signed.good ? 'ok' : `fehlt für ${origin} (Antwort ${signed.status}${signed.allow ? ', erlaubt: ' + signed.allow : ''})`;
-      if (!signed.good) {
-        out.corsDetail = { mitSignatur: signed };
-        try { out.corsDetail.ohneSignatur = await preflight(`https://${this.host}/${this.bucket}/_wayfolk-check`); } catch (e) { out.corsDetail.ohneSignatur = String(e.message); }
+      const put = this.presignPut('_wayfolk-check', 'image/jpeg').url;
+      const variants = {
+        'PUT mit Content-Type': await preflight(put, 'PUT', 'content-type'),
+        'PUT ohne Header': await preflight(put, 'PUT'),
+        'GET': await preflight(this._sign('GET', '_wayfolk-check', {}, 120), 'GET'),
+      };
+      const ct = variants['PUT mit Content-Type'];
+      out.cors = ct.good ? 'ok' : `fehlt für ${origin} (Antwort ${ct.status}${ct.allow ? ', erlaubt: ' + ct.allow : ''})`;
+      if (!ct.good) {
+        out.corsDetail = Object.fromEntries(Object.entries(variants).map(([k, v]) => [k, `${v.good ? 'ERLAUBT' : 'abgelehnt'} (${v.status}) ${v.good ? '' : v.body}`.trim()]));
+        out.corsHinweis = variants['PUT ohne Header'].good
+          ? 'Die Regel greift, erlaubt aber den Header Content-Type nicht.'
+          : variants.GET.good ? 'Lesen ist erlaubt, aber PUT (Hochladen) nicht: S3-Vorgänge in der Regel prüfen.' : 'Keine Regel passt zu dieser Herkunft: Regel gespeichert? Adresse genau gleich, ohne / am Ende?';
       }
     } catch (e) { out.cors = 'nicht prüfbar: ' + e.message; }
     out.ok = out.credentials === 'ok' && out.cors === 'ok';

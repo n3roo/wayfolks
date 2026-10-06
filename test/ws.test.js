@@ -173,3 +173,15 @@ test('HTTP: Health, Titelbild, Einladungsseite mit Vorschau, SPA-Fallback', asyn
     assert.doesNotMatch(sw, /__BUILD__|__PRECACHE__/);
   } finally { await t.done(); }
 });
+
+test('CSP erlaubt Kartenkacheln auch für den Service Worker (connect-src)', async () => {
+  const { createApp } = await import('../server/app.js');
+  const { createDb } = await import('../server/db.js');
+  const app = await createApp({ db: await createDb({ LOCAL_DB_FILE: ':memory:' }) });
+  await new Promise((r) => app.server.listen(0, r));
+  const res = await fetch(`http://127.0.0.1:${app.server.address().port}/`);
+  const csp = res.headers.get('content-security-policy');
+  assert.match(csp, /connect-src[^;]*basemaps\.cartocdn\.com/);
+  assert.match(csp, /img-src[^;]*basemaps\.cartocdn\.com/);
+  await app.close();
+});

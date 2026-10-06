@@ -36,7 +36,7 @@ function csp(env) {
     "style-src 'self' 'unsafe-inline'",
     `img-src 'self' data: blob: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org ${media}`.trim(),
     `media-src 'self' blob: ${media}`.trim(),
-    `connect-src 'self' ws: wss: https://photon.komoot.io https://nominatim.openstreetmap.org https://router.project-osrm.org https://routing.openstreetmap.de ${media} ${upload}`.replace(/\s+/g, ' ').trim(),
+    `connect-src 'self' ws: wss: https://*.basemaps.cartocdn.com https://*.tile.openstreetmap.org https://photon.komoot.io https://nominatim.openstreetmap.org https://router.project-osrm.org https://routing.openstreetmap.de ${media} ${upload}`.replace(/\s+/g, ' ').trim(),
     "font-src 'self'",
     "worker-src 'self'",
     "manifest-src 'self'",
